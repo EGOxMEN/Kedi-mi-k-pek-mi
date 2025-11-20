@@ -1,0 +1,88 @@
+<!DOCTYPE html>
+<html lang="tr">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>Kedi mi Köpek mi?</title>
+  <style>
+    body { font-family: sans-serif; max-width: 720px; margin: 24px auto; }
+    #preview { max-width: 100%; height: auto; margin-top: 12px; display: none; }
+    #result { margin-top: 16px; font-size: 18px; }
+    .prob { color: #444; font-size: 14px; }
+  </style>
+</head>
+<body>
+  <h1>Kedi mi Köpek mi?</h1>
+  <p>Bir fotoğraf yükle ve tahmini gör.</p>
+
+  <input type="file" id="fileInput" accept="image/*"/>
+
+  <img id="preview" alt="Yüklenen görsel önizleme"/>
+
+  <div id="result"></div>
+
+  <!-- Teachable Machine image kütüphanesi ve TensorFlow.js -->
+  <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs@4.14.0/dist/tf.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/@teachablemachine/image@0.8/dist/teachablemachine-image.min.js"></script>
+
+  <script>
+    // Model URL: Teachable Machine "Upload (hosted)" yaptıysan sana verdiği URL'yi buraya koy.
+    // Örn: const MODEL_URL = "https://teachablemachine.withgoogle.com/models/XXXXXXXX/";
+    const MODEL_URL = "https://teachablemachine.withgoogle.com/models/OTnCtucj4/"; // Sonunda slash (/) olmalı.
+
+    let model;
+
+    async function loadModel() {
+      const modelURL = MODEL_URL + "model.json";
+      const metadataURL = MODEL_URL + "metadata.json";
+      model = await tmImage.load(modelURL, metadataURL);
+      console.log("Model yüklendi:", model);
+    }
+
+    function showPreview(file) {
+      const img = document.getElementById("preview");
+      img.src = URL.createObjectURL(file);
+      img.style.display = "block";
+      return new Promise(resolve => {
+        img.onload = () => resolve(img);
+      });
+    }
+
+    async function predict(imgElement) {
+      const predictions = await model.predict(imgElement);
+      // predictions: [{className: "Cat", probability: 0.93}, {className: "Dog", probability: 0.07}]
+      // En yüksek olasılıklı sınıfı bul
+      let best = predictions[0];
+      for (const p of predictions) {
+        if (p.probability > best.probability) best = p;
+      }
+
+      const result = document.getElementById("result");
+      const percent = (best.probability * 100).toFixed(1);
+      result.innerHTML = `
+        <div><strong>Sonuç:</strong> ${best.className}</div>
+        <div class="prob"><strong>Güven:</strong> %${percent}</div>
+        <details style="margin-top:8px;">
+          <summary><strong>Tüm olasılıklar</strong></summary>
+          <ul>
+            ${predictions.map(p => `<li>${p.className}: %${(p.probability*100).toFixed(1)}</li>`).join("")}
+          </ul>
+        </details>
+      `;
+    }
+
+    document.getElementById("fileInput").addEventListener("change", async (e) => {
+      const file = e.target.files?.[0];
+      if (!file) return;
+
+      if (!model) {
+        // İlk seçmede modeli yükle
+        await loadModel();
+      }
+
+      const imgElement = await showPreview(file);
+      await predict(imgElement);
+    });
+  </script>
+</body>
+</html>
