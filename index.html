@@ -1,38 +1,53 @@
 <!DOCTYPE html>
 <html lang="tr">
 <head>
-  <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
-  <title>Kedi mi Köpek mi Kuğu mu?</title>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>Cat Dog Swan Sınıflandırıcı</title>
   <style>
-    body { font-family: sans-serif; max-width: 720px; margin: 24px auto; }
-    #preview { max-width: 100%; height: auto; margin-top: 12px; display: none; }
-    #result { margin-top: 16px; font-size: 18px; }
-    .prob { color: #444; font-size: 14px; }
+    body { font-family: Arial, sans-serif; max-width: 720px; margin: 28px auto; padding: 0 16px; color:#222; }
+    h1 { margin-bottom: 6px; }
+    #preview { max-width:100%; height:auto; margin-top:12px; display:none; border:1px solid #ddd; }
+    #result { margin-top:16px; font-size:16px; }
+    .prob { color:#444; font-size:14px; margin-top:6px; }
+    ul.probs { padding-left:18px; margin:8px 0 0 0; }
+    li { margin:4px 0; }
+    .low-confidence { color: #b03; }
   </style>
 </head>
 <body>
-  <h1>Kedi mi Köpek mi Kuğu mu?</h1>
-  <p>Bir fotoğraf yükle ve tahmini gör.</p>
+  <h1>Cat / Dog / Swan Sınıflandırıcı</h1>
+  <p>Bir görsel yükle; model sınıfını ve olasılıklarını gösterir (Kuğu yerine Swan olarak gösterilir).</p>
 
-  <input type="file" id="fileInput" accept="image/*"/>
+  <input type="file" id="fileInput" accept="image/*" />
 
-  <img id="preview" alt="Yüklenen görsel önizleme"/>
+  <img id="preview" alt="Yüklenen görsel önizleme" />
 
   <div id="result"></div>
 
-  <!-- Teachable Machine image kütüphanesi ve TensorFlow.js -->
   <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs@4.14.0/dist/tf.min.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/@teachablemachine/image@0.8/dist/teachablemachine-image.min.js"></script>
 
   <script>
-    // Model URL: Teachable Machine "Upload (hosted)" yaptıysan sana verdiği URL'yi buraya koy.
-    // Örn: const MODEL_URL = "https://teachablemachine.withgoogle.com/models/XXXXXXXX/";
-    const MODEL_URL = "https://teachablemachine.withgoogle.com/models/OTnCtucj4/"; // Sonunda slash (/) olmalı.
+    // Teachable Machine hosted model URL (sonunda slash / olmalı)
+    const MODEL_URL = "PASTE_YOUR_MODEL_URL_HERE";
+
+    // Label eşleme: modelin döndürdüğü isimleri buraya ekle
+    // Örn: modelde "Kuğu" olarak kayıtlıysa -> burada "Kuğu": "Swan" yap
+    const labelMap = {
+      "Kuğu": "Swan",
+      "kuğu": "Swan",
+      "Kugu": "Swan",
+      "Swan": "Swan" // model zaten Swan döndürse de aynen geçsin
+    };
 
     let model;
 
     async function loadModel() {
+      if (!MODEL_URL || MODEL_URL.includes("PASTE_YOUR_MODEL_URL_HERE")) {
+        alert("MODEL_URL değişkenine Teachable Machine model URL'ini yapıştırın.");
+        throw new Error("Model URL yok");
+      }
       const modelURL = MODEL_URL + "model.json";
       const metadataURL = MODEL_URL + "metadata.json";
       model = await tmImage.load(modelURL, metadataURL);
@@ -48,24 +63,36 @@
       });
     }
 
+    function formatPercent(p) {
+      return (p * 100).toFixed(1) + "%";
+    }
+
+    // Görünen etiketi al: eğer labelMap'te eşleşme varsa mapped, yoksa orijinal
+    function displayLabel(original) {
+      return labelMap.hasOwnProperty(original) ? labelMap[original] : original;
+    }
+
     async function predict(imgElement) {
-      const predictions = await model.predict(imgElement);
-      // predictions: [{className: "Cat", probability: 0.93}, {className: "Dog", probability: 0.07}]
-      // En yüksek olasılıklı sınıfı bul
-      let best = predictions[0];
-      for (const p of predictions) {
-        if (p.probability > best.probability) best = p;
+      if (!model) {
+        await loadModel();
       }
 
-      const result = document.getElementById("result");
-      const percent = (best.probability * 100).toFixed(1);
-      result.innerHTML = `
-        <div><strong>Sonuç:</strong> ${best.className}</div>
-        <div class="prob"><strong>Güven:</strong> %${percent}</div>
+      const predictions = await model.predict(imgElement);
+      const sorted = predictions.slice().sort((a, b) => b.probability - a.probability);
+      const best = sorted[0];
+      const resultDiv = document.getElementById("result");
+
+      const confidenceThreshold = 0.60;
+      const isLow = best.probability < confidenceThreshold;
+
+      resultDiv.innerHTML = `
+        <div><strong>En yüksek tahmin:</strong> ${displayLabel(best.className)}</div>
+        <div class="prob"><strong>Güven:</strong> ${formatPercent(best.probability)}</div>
+        ${isLow ? `<div class="prob low-confidence"><strong>Kararsız:</strong> güven < ${formatPercent(confidenceThreshold)}</div>` : ""}
         <details style="margin-top:8px;">
           <summary><strong>Tüm olasılıklar</strong></summary>
-          <ul>
-            ${predictions.map(p => `<li>${p.className}: %${(p.probability*100).toFixed(1)}</li>`).join("")}
+          <ul class="probs">
+            ${sorted.map(p => `<li>${displayLabel(p.className)}: ${formatPercent(p.probability)}</li>`).join("")}
           </ul>
         </details>
       `;
@@ -74,14 +101,14 @@
     document.getElementById("fileInput").addEventListener("change", async (e) => {
       const file = e.target.files?.[0];
       if (!file) return;
-
-      if (!model) {
-        // İlk seçmede modeli yükle
-        await loadModel();
+      try {
+        if (!model) await loadModel();
+        const imgEl = await showPreview(file);
+        await predict(imgEl);
+      } catch (err) {
+        console.error(err);
+        alert("Bir hata oluştu. Konsolu kontrol et.");
       }
-
-      const imgElement = await showPreview(file);
-      await predict(imgElement);
     });
   </script>
 </body>
